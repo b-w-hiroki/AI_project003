@@ -3,6 +3,7 @@
 const API_URL = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS = 1000;
+const REQUEST_TIMEOUT_MS = 30000;
 
 const SYSTEM_PROMPT = `あなたはSNS上のAI・ビジネス知見ポストを要約する編集者です。
 以下のJSON形式のみで回答してください。前置き・コードブロック記法は禁止。
@@ -39,6 +40,12 @@ async function summarize(text) {
     throw withCode(new Error("APIキーが未設定です"), "NO_KEY");
   }
 
+  // タイムアウトを付けないと、APIがハングしたときに fetch が永遠に解決せず、
+  // content script 側の同時実行ロック(inFlight)が外れなくなる。
+  // その結果、そのタブの要約機能全体がリロードするまで死ぬ
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   let response;
   try {
     response = await fetch(API_URL, {
@@ -56,9 +63,15 @@ async function summarize(text) {
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: text }],
       }),
+      signal: controller.signal,
     });
-  } catch {
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw withCode(new Error("応答がありませんでした。時間をおいて再試行してください"), "TIMEOUT");
+    }
     throw new Error("ネットワークエラー。接続を確認してください");
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!response.ok) {
