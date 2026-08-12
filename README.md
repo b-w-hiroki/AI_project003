@@ -1,1 +1,51 @@
-# AI_project003
+# AI知見要約 — SNS長文ポストの要約Chrome拡張
+
+X(旧Twitter)上の長文AI知見ポストに「⚡要約」ボタンを出し、クリックで
+**3行要約＋要点箇条書き**をポスト直下にインライン表示する。原文は隠さない。
+
+差別化点: 内容が一般論の言い換え・根拠不明・宣伝目的の場合、
+要約時に **⚠️注意フラグ** を自動で付ける。「やってるつもり」系の投稿を読む前に見抜く。
+
+仕様の正は [docs/spec.md](docs/spec.md)。
+
+## 使い方
+
+1. `chrome://extensions` → デベロッパーモード ON → 「パッケージ化されていない拡張機能を読み込む」→ `extension/` を選択
+2. 拡張機能の「オプション」で Claude APIキーを設定([console.anthropic.com](https://console.anthropic.com) で発行)
+3. x.com を開く。500字以上のポストのアクションバーに「⚡要約」が出る
+4. クリックで要約カードが展開。再クリックで折りたたみ
+
+## 構成
+
+```
+extension/
+  manifest.json          Manifest V3
+  content/x.js           タイムライン監視・ボタン注入・カード描画
+  content/styles.css     カードUI(ダークモード対応)
+  background/worker.js   Claude API呼び出し(キーはここでのみ扱う)
+  options/               APIキー・モデル設定
+  shared/platforms.js    プラットフォーム定義 ← Phase 2 の拡張ポイント
+docs/spec.md             仕様(実装の正)
+```
+
+## 設計メモ
+
+- **APIキーは background service worker の外に出さない。** content script には要約結果だけが渡る
+- DOMセレクタは `shared/platforms.js` に集約。**Note / LinkedIn 対応はこの配列にエントリを足すだけ**で、注入ロジックは共通のまま動く設計
+- 同時リクエストは1件まで。同一ポストはセッション内キャッシュから即表示
+- 「さらに表示」付きポストは表示範囲だけで要約し「※全文の一部から要約」と注記
+
+## 制約・既知の注意点
+
+- X のDOM(data-testid)は予告なく変わる。壊れたら `shared/platforms.js` のセレクタを更新する
+- APIキーはユーザー自身のもの。**要約1回ごとに従量課金が発生する**(claude-sonnet-4-6 で1回あたり数円程度)
+- 拡張からAnthropic APIを直接呼ぶため `anthropic-dangerous-direct-browser-access` ヘッダーを使用している。キーを第三者のページに晒さないため、呼び出しは background に隔離してある
+
+## 動作確認(spec準拠)
+
+- [ ] 500字以上のポストにボタンが出る / 未満には出ない
+- [ ] 要約カードの3ブロック(3行要約・要点・注意フラグ)が表示される
+- [ ] 再クリックで折りたたみ、同一ポスト2回目はキャッシュから即表示
+- [ ] キー未設定でクリック → 設定画面への誘導トースト
+- [ ] 無効キー → カード内にエラー+リトライ
+- [ ] ダークモードでカードが読める

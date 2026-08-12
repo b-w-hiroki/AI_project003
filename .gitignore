@@ -1,0 +1,5 @@
+# 認証情報・鍵は絶対にコミットしない
+.env
+*.pem
+node_modules/
+.DS_Store

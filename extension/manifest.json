@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "AI知見要約",
+  "version": "0.1.0",
+  "description": "X上の長文AI知見ポストを3行要約＋要点でインライン表示する。中身のない一般論には注意フラグを付ける。",
+  "permissions": ["storage"],
+  "host_permissions": ["https://x.com/*", "https://api.anthropic.com/*"],
+  "background": {
+    "service_worker": "background/worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*"],
+      "js": ["shared/platforms.js", "content/x.js"],
+      "css": ["content/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  }
+}
