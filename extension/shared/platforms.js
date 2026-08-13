@@ -17,7 +17,10 @@
 const AIQ_PLATFORMS = [
   {
     id: "x",
-    matches: (host) => host === "x.com" || host === "twitter.com",
+    // manifest.json の host_permissions / content_scripts.matches は x.com のみ許可。
+    // twitter.com を対象に含めるならそちらも同時に変更すること(Chromeが
+    // content scriptを注入しないドメインをここに書いても意味が無い)
+    matches: (host) => host === "x.com",
     postSelector: 'article[data-testid="tweet"]',
     textSelector: 'div[data-testid="tweetText"]',
     showMoreSelector: '[data-testid="tweet-text-show-more-link"]',

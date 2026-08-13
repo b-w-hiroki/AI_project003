@@ -22,16 +22,22 @@
       const textEl = post.querySelector(platform.textSelector);
       if (!textEl) continue; // 画像のみ等。後で本文が入る可能性があるので未処理のまま残す
 
-      post.dataset[PROCESSED] = "1";
-
       const text = textEl.textContent || "";
       const hasShowMore =
         platform.showMoreSelector !== null &&
         post.querySelector(platform.showMoreSelector) !== null;
 
-      if (text.length < MIN_CHARS && !hasShowMore) continue;
+      if (text.length < MIN_CHARS && !hasShowMore) {
+        // 対象外と確定。以後この投稿を再走査しない
+        post.dataset[PROCESSED] = "1";
+        continue;
+      }
 
-      injectButton(post, textEl, hasShowMore);
+      // ボタンを差し込めた場合のみ処理済みにする。アクションバーが見つからない
+      // (広告枠・DOM変更等)場合はフラグを立てず、次回のscanで再挑戦する
+      if (injectButton(post, textEl, hasShowMore)) {
+        post.dataset[PROCESSED] = "1";
+      }
     }
   }
 
@@ -52,7 +58,7 @@
 
   function injectButton(post, textEl, partial) {
     const bar = post.querySelector(platform.actionBarSelector);
-    if (!bar) return;
+    if (!bar) return false;
 
     const btn = document.createElement("button");
     btn.className = "aiq-btn";
@@ -64,6 +70,7 @@
       onButtonClick(post, textEl, btn, partial);
     });
     bar.appendChild(btn);
+    return true;
   }
 
   function onButtonClick(post, textEl, btn, partial) {
@@ -100,10 +107,18 @@
         btn.disabled = false;
         btn.textContent = "⚡要約";
 
+        // Xのタイムラインは仮想スクロールで、応答が届くまでの1〜3秒の間に
+        // ユーザーがスクロールしてこの投稿がDOMから外れていることがある。
+        // 描画しても誰にも見えないので、成功結果だけキャッシュに残して抜ける
+        // (再訪時に即表示できる。無駄なAPI課金をもう一度払わせない)
+        const attached = document.body.contains(post);
+
         if (chrome.runtime.lastError || !res) {
-          renderError(post, "拡張機能との通信に失敗しました。", () =>
-            requestSummary(post, textEl, btn, partial, postId)
-          );
+          if (attached) {
+            renderError(post, "拡張機能との通信に失敗しました。", () =>
+              requestSummary(post, textEl, btn, partial, postId)
+            );
+          }
           return;
         }
         if (!res.ok) {
@@ -113,14 +128,18 @@
             );
             return;
           }
-          renderError(post, res.error || "要約に失敗しました。", () =>
-            requestSummary(post, textEl, btn, partial, postId)
-          );
+          if (attached) {
+            renderError(post, res.error || "要約に失敗しました。", () =>
+              requestSummary(post, textEl, btn, partial, postId)
+            );
+          }
           return;
         }
 
         cache.set(postId, res.data);
-        renderCard(post, res.data, partial);
+        if (attached) {
+          renderCard(post, res.data, partial);
+        }
       }
     );
   }
@@ -181,6 +200,9 @@
 
   function renderError(post, message, retry) {
     const card = cardContainer(post);
+    // aiq-title を持たせておく。無いと再クリックでの折りたたみ(.aiq-collapsed)時に
+    // カードの中身が全部消え、リトライボタンへ二度と到達できなくなる
+    card.appendChild(el("div", "aiq-title", "⚠️ エラー"));
     card.appendChild(el("div", "aiq-error", message));
     const btn = document.createElement("button");
     btn.className = "aiq-retry";
@@ -217,12 +239,17 @@
   }
 
   function isDarkTheme() {
-    // Xはbodyの背景色でテーマ判定できる。取れなければOS設定に従う(spec)
+    // Xはbodyの背景色でテーマ判定できる。取れなければOS設定に従う(spec)。
+    // alpha=0(透明)のときは色の情報が無いので、rgbだけを見て判定してはいけない
+    // (誤って0,0,0=暗色と読み、ライトモードを暗色扱いにしてしまう)
     const bg = getComputedStyle(document.body).backgroundColor;
-    const m = bg && bg.match(/\d+/g);
-    if (m && m.length >= 3) {
-      const [r, g, b] = m.map(Number);
-      return r + g + b < 300;
+    const m = bg && bg.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
+    if (m) {
+      const alpha = m[4] === undefined ? 1 : Number(m[4]);
+      if (alpha > 0) {
+        const [r, g, b] = [m[1], m[2], m[3]].map(Number);
+        return r + g + b < 300;
+      }
     }
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   }
