@@ -66,6 +66,7 @@ async function summarize(text) {
 
   let response;
   try {
+    try {
     response = await fetch(API_URL, {
       method: "POST",
       headers: {
@@ -83,14 +84,12 @@ async function summarize(text) {
       }),
       signal: controller.signal,
     });
-  } catch (err) {
+    } catch (err) {
     if (err.name === "AbortError") {
       throw withCode(new Error("応答がありませんでした。時間をおいて再試行してください"), "TIMEOUT");
     }
     throw new Error("ネットワークエラー。接続を確認してください");
-  } finally {
-    clearTimeout(timer);
-  }
+    }
 
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
@@ -108,6 +107,14 @@ async function summarize(text) {
   const body = await response.json();
   const raw = body?.content?.[0]?.text ?? "";
   return parseSummary(raw);
+  } catch (err) {
+    if (controller.signal.aborted || err.name === "AbortError") {
+      throw withCode(new Error("応答がありませんでした。時間をおいて再試行してください"), "TIMEOUT");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // モデルにはJSONのみを要求しているが、コードフェンス等で包んでくる場合に備えて剥がす
