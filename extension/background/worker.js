@@ -19,8 +19,26 @@ const SYSTEM_PROMPT = `あなたはSNS上のAI・ビジネス知見ポストを�
 - 抽象的な精神論は要点に含めない
 - 「結局何が新しいのか」を1行目に置く`;
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+const MAX_INPUT_CHARS = 20000;
+
+function trustedSender(sender) {
+  if (sender?.id !== chrome.runtime.id) return false;
+  if (sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`)) return true;
+  try {
+    const url = new URL(sender.url);
+    return url.protocol === "https:" && url.hostname === "x.com" && !!sender.tab;
+  } catch {
+    return false;
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!trustedSender(sender)) return undefined;
   if (message?.type === "AIQ_SUMMARIZE") {
+    if (typeof message.text !== "string" || !message.text.trim() || message.text.length > MAX_INPUT_CHARS) {
+      sendResponse({ ok: false, code: "INVALID_INPUT", error: "要約する文章が長すぎるか空です" });
+      return undefined;
+    }
     summarize(message.text)
       .then((data) => sendResponse({ ok: true, data }))
       .catch((err) =>
@@ -48,6 +66,7 @@ async function summarize(text) {
 
   let response;
   try {
+    try {
     response = await fetch(API_URL, {
       method: "POST",
       headers: {
@@ -65,14 +84,12 @@ async function summarize(text) {
       }),
       signal: controller.signal,
     });
-  } catch (err) {
+    } catch (err) {
     if (err.name === "AbortError") {
       throw withCode(new Error("応答がありませんでした。時間をおいて再試行してください"), "TIMEOUT");
     }
     throw new Error("ネットワークエラー。接続を確認してください");
-  } finally {
-    clearTimeout(timer);
-  }
+    }
 
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
@@ -90,6 +107,14 @@ async function summarize(text) {
   const body = await response.json();
   const raw = body?.content?.[0]?.text ?? "";
   return parseSummary(raw);
+  } catch (err) {
+    if (controller.signal.aborted || err.name === "AbortError") {
+      throw withCode(new Error("応答がありませんでした。時間をおいて再試行してください"), "TIMEOUT");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // モデルにはJSONのみを要求しているが、コードフェンス等で包んでくる場合に備えて剥がす
