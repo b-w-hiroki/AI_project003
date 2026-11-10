@@ -14,3 +14,10 @@ jobs:
         with:
           node-version: "22"
       - run: node --test test/*.test.cjs
+      - run: npm install --no-save playwright@1.58.2
+      - run: npx playwright install --with-deps chromium
+      - run: node test/browser.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: offline-browser-qa
+          path: qa-artifacts/
