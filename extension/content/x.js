@@ -96,12 +96,29 @@
   }
 
   function requestSummary(post, textEl, btn, partial, postId) {
+    // Retry buttons share the same lock as the main button.
+    if (inFlight) {
+      toast("要約を生成中です。少し待ってからもう一度押してください。");
+      return;
+    }
+    // Capture exactly what was disclosed, including on retries. Never send later DOM changes.
+    const text = textEl.textContent || "";
+    if (!text.trim() || text.length > 20000) {
+      toast("要約する文章が空か、20,000文字を超えています。");
+      return;
+    }
+    if (!window.confirm(
+      `Anthropic に、この投稿の表示中の本文 ${text.length.toLocaleString()} 文字を送って要約します。\n` +
+      "画像や非表示の全文は送りません。本文に個人情報がないか確認してください。\n" +
+      "設定した API キーで従量課金されます。金額はモデル・入出力の長さで変わり、再試行も課金される場合があります。\n\n" +
+      `本文の先頭：\n${text.slice(0, 240)}${text.length > 240 ? "…" : ""}\n\n送信しますか？`
+    )) return;
     inFlight = true;
     btn.disabled = true;
     btn.textContent = "…要約中";
 
     chrome.runtime.sendMessage(
-      { type: "AIQ_SUMMARIZE", text: textEl.textContent || "" },
+      { type: "AIQ_SUMMARIZE", text },
       (res) => {
         inFlight = false;
         btn.disabled = false;
@@ -209,7 +226,7 @@
     btn.type = "button";
     btn.textContent = "リトライ";
     btn.addEventListener("click", () => {
-      card.remove();
+      // Keep the error and retry control when confirmation is canceled or another request is active.
       retry();
     });
     card.appendChild(btn);
